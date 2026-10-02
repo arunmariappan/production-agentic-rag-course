@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import List
 
@@ -29,6 +30,30 @@ class JinaEmbeddingsClient:
         self.client = httpx.AsyncClient(timeout=30.0)
         logger.info("Jina embeddings client initialized")
 
+    async def _post_embeddings(self, request_data: JinaEmbeddingRequest, max_retries: int = 6) -> httpx.Response:
+        """POST to the embeddings endpoint, waiting and retrying when rate limited (HTTP 429).
+
+        The free Jina tier limits tokens per minute, so indexing several papers in a row hits 429s.
+        Waits for the Retry-After header if present, otherwise backs off 5s, 10s, 20s, ... (capped at 60s).
+
+        :param request_data: Embedding request payload
+        :param max_retries: Maximum retries after a 429 response
+        :returns: Successful response
+        :raises httpx.HTTPStatusError: On non-429 errors, or 429 after max_retries
+        """
+        attempt = 0
+        while True:
+            response = await self.client.post(f"{self.base_url}/embeddings", headers=self.headers, json=request_data.model_dump())
+            if response.status_code != 429 or attempt >= max_retries:
+                response.raise_for_status()
+                return response
+
+            retry_after = response.headers.get("Retry-After", "")
+            delay = float(retry_after) if retry_after.isdigit() else min(5 * 2**attempt, 60)
+            attempt += 1
+            logger.warning(f"Jina rate limit hit (429), retrying in {delay:.0f}s (retry {attempt}/{max_retries})")
+            await asyncio.sleep(delay)
+
     async def embed_passages(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
         """Embed text passages for indexing.
 
@@ -46,10 +71,7 @@ class JinaEmbeddingsClient:
             )
 
             try:
-                response = await self.client.post(
-                    f"{self.base_url}/embeddings", headers=self.headers, json=request_data.model_dump()
-                )
-                response.raise_for_status()
+                response = await self._post_embeddings(request_data)
 
                 result = JinaEmbeddingResponse(**response.json())
                 batch_embeddings = [item["embedding"] for item in result.data]
@@ -76,8 +98,8 @@ class JinaEmbeddingsClient:
         request_data = JinaEmbeddingRequest(model="jina-embeddings-v3", task="retrieval.query", dimensions=1024, input=[query])
 
         try:
-            response = await self.client.post(f"{self.base_url}/embeddings", headers=self.headers, json=request_data.model_dump())
-            response.raise_for_status()
+            # Few retries: queries are interactive and callers can fall back to BM25
+            response = await self._post_embeddings(request_data, max_retries=2)
 
             result = JinaEmbeddingResponse(**response.json())
             embedding = result.data[0]["embedding"]
