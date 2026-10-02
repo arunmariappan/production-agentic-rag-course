@@ -15,6 +15,9 @@ RUN apt-get update && \
         libpq-dev \
         poppler-utils \
         tesseract-ocr \
+        # OpenCV (used by Docling) needs libGL/glib; without them every PDF fails to parse
+        libgl1 \
+        libglib2.0-0 \
         && rm -rf /var/lib/apt/lists/*
 
 # Create airflow user with UID/GID 50000 for cross-platform compatibility
