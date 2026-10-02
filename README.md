@@ -8,7 +8,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.12+-blue.svg" alt="Python Version">
+  <img src="https://img.shields.io/badge/Python-3.12-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/OpenSearch-2.19-orange.svg" alt="OpenSearch">
   <img src="https://img.shields.io/badge/Docker-Compose-blue.svg" alt="Docker">
@@ -76,7 +76,7 @@ By the end of this course, you'll have your own AI research assistant and the de
 
 ### **📋 Prerequisites**
 - **Docker Desktop** (with Docker Compose)  
-- **Python 3.12+**
+- **Python 3.12** (the project requires `>=3.12,<3.13`)
 - **UV Package Manager** ([Install Guide](https://docs.astral.sh/uv/getting-started/installation/))
 - **8GB+ RAM** and **20GB+ free disk space**
 
@@ -85,13 +85,17 @@ By the end of this course, you'll have your own AI research assistant and the de
 ```bash
 # 1. Clone and setup
 git clone <repository-url>
-cd arxiv-paper-curator
+cd production-agentic-rag-course
 
 # 2. Configure environment (IMPORTANT!)
 cp .env.example .env
-# The .env file contains all necessary configuration for OpenSearch, 
-# arXiv API, and service connections. Defaults work out of the box.
-# You need to add Jina embeddings free api key and langfuse keys (check the blogs)
+# The .env file contains all necessary configuration for OpenSearch,
+# arXiv API, and service connections. Most defaults work out of the box.
+# Then edit .env:
+#   - JINA_API_KEY: free Jina AI key (required for hybrid search and indexing)
+#   - LANGFUSE__PUBLIC_KEY / LANGFUSE__SECRET_KEY: optional tracing keys (see Configuration)
+#   - LANGFUSE_ENCRYPTION_KEY: replace the placeholder with `openssl rand -hex 32`
+#   - TELEGRAM__ENABLED=false unless you have a bot token (see Week 7)
 
 # 3. Install dependencies
 uv sync
@@ -99,7 +103,10 @@ uv sync
 # 4. Start all services
 docker compose up --build -d
 
-# 5. Verify everything works
+# 5. Pull the default LLM into the Ollama container (one-time)
+docker exec rag-ollama ollama pull llama3.2:1b
+
+# 6. Verify everything works
 curl http://localhost:8000/api/v1/health
 ```
 
@@ -133,12 +140,12 @@ docker compose up --build -d
 | Service | URL | Purpose |
 |---------|-----|---------|
 | **API Documentation** | http://localhost:8000/docs | Interactive API testing |
-| **Gradio RAG Interface** | http://localhost:7861 | User-friendly chat interface |
-| **Langfuse Dashboard** | http://localhost:3000 | RAG pipeline monitoring & tracing |
+| **Gradio RAG Interface** | http://localhost:7861 | User-friendly chat interface (start it with `uv run python gradio_launcher.py`) |
+| **Langfuse Dashboard** | http://localhost:3001 | RAG pipeline monitoring & tracing |
 | **Airflow Dashboard** | http://localhost:8080 | Workflow management |
 | **OpenSearch Dashboards** | http://localhost:5601 | Hybrid search engine UI |
 
-#### **NOTE**: Check airflow/simple_auth_manager_passwords.json.generated for Airflow username and password
+#### **NOTE**: Default logins: Airflow `admin` / `admin` (created by `airflow/entrypoint.sh`); Langfuse `admin@example.com` / `admin123` (set in `compose.yml`). Change both outside local development.
 ---
 
 ## 📚 Week 1: Infrastructure Foundation ✅
@@ -164,7 +171,7 @@ docker compose up --build -d
 - **FastAPI**: REST endpoints with async support (Port 8000)  
 - **PostgreSQL 16**: Paper metadata storage (Port 5432)
 - **OpenSearch 2.19**: Search engine with dashboards (Ports 9200, 5601)
-- **Apache Airflow 3.0**: Workflow orchestration (Port 8080)
+- **Apache Airflow 2.10**: Workflow orchestration (Port 8080)
 - **Ollama**: Local LLM server (Port 11434)
 
 ### **📓 Setup Guide**
@@ -202,8 +209,8 @@ uv run jupyter notebook notebooks/week1/week1_setup.ipynb
 - **MetadataFetcher**: 🎯 Main orchestrator coordinating the entire pipeline
 - **ArxivClient**: Rate-limited paper fetching with retry logic
 - **PDFParserService**: Docling-powered scientific document processing  
-- **Airflow DAGs**: Automated daily paper ingestion workflows
-- **PostgreSQL Storage**: Structured paper metadata and content
+- **Airflow DAGs**: `arxiv_paper_ingestion` runs Monday–Friday at 06:00 UTC (`airflow/dags/`)
+- **PostgreSQL Storage**: Structured paper metadata and content (tables are created automatically on startup)
 
 ### **📓 Implementation Guide**
 
@@ -238,8 +245,8 @@ uv run jupyter notebook notebooks/week2/week2_arxiv_integration.ipynb
 </p>
 
 **Search Infrastructure Components:**
-- **OpenSearch Service**: `src/services/opensearch/` - Professional search service implementation
-- **Search API**: `src/routers/search.py` - Search API endpoints with BM25 scoring
+- **OpenSearch Service**: `src/services/opensearch/` - Professional search service implementation (BM25 queries built in `query_builder.py`)
+- **Search API**: `src/routers/hybrid_search.py` - BM25 keyword search via `POST /api/v1/hybrid-search/` with `"use_hybrid": false` (the Week 3 search endpoint was folded into this unified endpoint in Week 4)
 - **Learning Materials**: `notebooks/week3/` - Complete OpenSearch integration guide
 - **Quality Metrics**: Precision, recall, and relevance scoring
 
@@ -276,8 +283,9 @@ uv run jupyter notebook notebooks/week3/week3_opensearch.ipynb
 
 **Hybrid Search Infrastructure Components:**
 - **Text Chunker**: `src/services/indexing/text_chunker.py` - Section-aware chunking with overlap strategies
-- **Embeddings Service**: `src/services/embeddings/` - Production embedding pipeline with Jina AI
-- **Hybrid Search API**: `src/routers/hybrid_search.py` - Unified search API supporting all modes
+- **Embeddings Service**: `src/services/embeddings/` - Production embedding pipeline with Jina AI (`jina-embeddings-v3`, 1024 dimensions)
+- **Hybrid Indexer**: `src/services/indexing/hybrid_indexer.py` - Chunks, embeds, and bulk-indexes papers into the `arxiv-papers-chunks` index; run by the Airflow DAG's `index_papers_hybrid` task
+- **Hybrid Search API**: `src/routers/hybrid_search.py` - Unified search API supporting all modes (RRF fusion via an OpenSearch search pipeline, falls back to BM25 if embedding fails)
 - **Learning Materials**: `notebooks/week4/` - Complete hybrid search implementation guide
 
 ### **📓 Setup Guide**
@@ -357,7 +365,7 @@ uv run python gradio_launcher.py
 - **Langfuse Service**: `src/services/langfuse/` - Complete tracing integration with RAG-specific metrics
 - **Cache Service**: `src/services/cache/` - Redis client with exact-match caching and graceful fallback
 - **Updated Endpoints**: `src/routers/ask.py` - Integrated tracing and caching middleware
-- **Docker Config**: `docker-compose.yml` - Added Redis service and Langfuse local instance
+- **Docker Config**: `compose.yml` - Added Redis service and a self-hosted Langfuse v3 stack (web, worker, Postgres, ClickHouse, Redis, MinIO)
 - **Learning Materials**: `notebooks/week6/` - Complete monitoring and caching implementation guide
 
 ### **📓 Setup Guide**
@@ -394,11 +402,14 @@ uv run jupyter notebook notebooks/week6/week6_cache_testing.ipynb
 </p>
 
 **Agentic RAG Infrastructure Components:**
-- **Agent Nodes**: `src/services/agents/nodes/` - Guardrail, retrieve, grade, rewrite, and generate nodes
+- **Agent Nodes**: `src/services/agents/nodes/` - Guardrail, out-of-scope, retrieve, grade, rewrite, and generate nodes
 - **Workflow Orchestration**: `src/services/agents/agentic_rag.py` - LangGraph workflow coordination
+- **Retriever Tool**: `src/services/agents/tools.py` - `retrieve_papers` tool wrapping hybrid search
 - **Telegram Bot**: `src/services/telegram/` - Command handlers and message processing
-- **Agentic Endpoint**: `src/routers/agentic_ask.py` - Agentic RAG API endpoint
+- **Agentic Endpoints**: `src/routers/agentic_ask.py` - `POST /api/v1/ask-agentic` (answer + reasoning steps + Langfuse `trace_id`) and `POST /api/v1/feedback` (score a response by `trace_id`)
 - **Learning Materials**: `notebooks/week7/` - Week 7 learning materials and examples
+
+**Agent workflow:** `guardrail` scores whether the question is in scope (CS/AI/ML, threshold 60/100). Out-of-scope questions get a polite refusal; in-scope ones go to `retrieve` → `grade_documents`. Relevant documents go to `generate_answer`; otherwise `rewrite_query` refines the question and retrieval is retried (up to 2 attempts).
 
 ### **📓 Setup Guide**
 
@@ -406,6 +417,8 @@ uv run jupyter notebook notebooks/week6/week6_cache_testing.ipynb
 # Launch the Week 7 notebook
 uv run jupyter notebook notebooks/week7/week7_agentic_rag.ipynb
 ```
+
+**Telegram bot:** create a bot with [@BotFather](https://t.me/BotFather), set `TELEGRAM__ENABLED=true` and `TELEGRAM__BOT_TOKEN=<token>` in `.env`, then restart the API (`docker compose up --build -d api`). The bot starts with the API and uses polling, so no webhook is needed. Send it any question, or use `/start`, `/help`, or `/search <keywords>`.
 
 **Completion Guide:** Follow the [Week 7 notebook](notebooks/week7/week7_agentic_rag.ipynb) for hands-on LangGraph agentic RAG and Telegram bot implementation.
 
@@ -424,8 +437,14 @@ cp .env.example .env
 
 **Key Variables:**
 - `JINA_API_KEY` - Required for Week 4+ (hybrid search with embeddings)
-- `TELEGRAM__BOT_TOKEN` - Required for Week 7 (Telegram bot integration)
-- `LANGFUSE__PUBLIC_KEY` & `LANGFUSE__SECRET_KEY` - Optional for Week 6 (monitoring)
+- `OLLAMA_MODEL` - LLM used for generation (default `llama3.2:1b`; pull it into the Ollama container first)
+- `TELEGRAM__ENABLED` & `TELEGRAM__BOT_TOKEN` - Required for Week 7 (Telegram bot integration)
+- `LANGFUSE__PUBLIC_KEY` & `LANGFUSE__SECRET_KEY` - Optional for Week 6 (monitoring). Log in to Langfuse at http://localhost:3001, create API keys for a project, and paste them here.
+
+**How settings are read** ([src/config.py](src/config.py)):
+- Grouped settings use a **double-underscore** prefix: `ARXIV__`, `PDF_PARSER__`, `CHUNKING__`, `OPENSEARCH__`, `LANGFUSE__`, `REDIS__`, `TELEGRAM__` (for example, `CHUNKING__CHUNK_SIZE=600`).
+- `.env.example` also contains single-underscore `LANGFUSE_*` entries (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_HOST`, ...). The API does **not** read those for tracing. Use the `LANGFUSE__*` names above. Keep the `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`, and other Langfuse server variables, because `compose.yml` uses them to run Langfuse itself.
+- Hostnames in `.env` are Docker service names (`postgres`, `opensearch`, `ollama`, `redis`). To run the API or notebooks directly on your machine, point them at `localhost` instead.
 
 **Complete Configuration:** See [.env.example](.env.example) for all available options and detailed documentation.
 
@@ -440,27 +459,39 @@ cp .env.example .env
 | **FastAPI** | REST API with automatic docs | ✅ Ready |
 | **PostgreSQL 16** | Paper metadata and content storage | ✅ Ready |
 | **OpenSearch 2.19** | Hybrid search engine (BM25 + Vector) | ✅ Ready |
-| **Apache Airflow 3.0** | Workflow automation | ✅ Ready |
+| **Apache Airflow 2.10** | Workflow automation | ✅ Ready |
+| **Docling** | Scientific PDF parsing (Week 2) | ✅ Ready |
 | **Jina AI** | Embedding generation (Week 4) | ✅ Ready |
 | **Ollama** | Local LLM serving (Week 5) | ✅ Ready |
+| **Gradio** | Web chat interface (Week 5) | ✅ Ready |
 | **Redis** | High-performance caching (Week 6) | ✅ Ready |
-| **Langfuse** | RAG pipeline observability (Week 6) | ✅ Ready |
+| **Langfuse v3** | RAG pipeline observability (Week 6) | ✅ Ready |
+| **LangGraph** | Agentic RAG workflow (Week 7) | ✅ Ready |
+| **Telegram Bot API** | Mobile chat access (Week 7) | ✅ Ready |
 
 **Development Tools:** UV, Ruff, MyPy, Pytest, Docker Compose
 
 ### **🏗️ Project Structure**
 
 ```
-arxiv-paper-curator/
+production-agentic-rag-course/
 ├── src/                    # Main application code
-│   ├── routers/            # API endpoints (search, ask, papers)
-│   ├── services/           # Business logic (opensearch, ollama, agents, cache)
+│   ├── main.py             # FastAPI app; creates all services at startup
+│   ├── dependencies.py     # FastAPI dependency injection for services
+│   ├── routers/            # API endpoints (health, hybrid search, ask/stream, agentic ask)
+│   ├── services/           # Business logic (arxiv, pdf_parser, indexing, embeddings,
+│   │                       #   opensearch, ollama, cache, langfuse, agents, telegram)
+│   ├── db/                 # Database connection (PostgreSQL)
+│   ├── repositories/       # Data access for papers
 │   ├── models/             # Database models (SQLAlchemy)
 │   ├── schemas/            # Pydantic validation schemas
+│   ├── gradio_app.py       # Gradio chat UI
 │   └── config.py           # Environment configuration
 ├── notebooks/              # Weekly learning materials (week1-7)
-├── airflow/                # Workflow orchestration (DAGs)
-├── tests/                  # Test suite
+├── airflow/                # Workflow orchestration (DAGs, Airflow Dockerfile)
+├── tests/                  # Test suite (unit, api, integration)
+├── static/                 # Architecture diagrams
+├── gradio_launcher.py      # Starts the Gradio UI on port 7861
 └── compose.yml             # Docker service orchestration
 ```
 
@@ -468,11 +499,21 @@ arxiv-paper-curator/
 
 | Endpoint | Method | Description | Week |
 |----------|--------|-------------|------|
-| `/health` | GET | Service health check | Week 1 |
-| `/api/v1/papers` | GET | List stored papers | Week 2 |
-| `/api/v1/papers/{id}` | GET | Get specific paper | Week 2 |
-| `/api/v1/search` | POST | BM25 keyword search | Week 3 |
-| `/api/v1/hybrid-search/` | POST | Hybrid search (BM25 + Vector) | **Week 4** |
+| `/api/v1/health` | GET | Health check for the API, database, OpenSearch, and Ollama | Week 1 |
+| `/api/v1/hybrid-search/` | POST | Search paper chunks: hybrid (BM25 + vector), or BM25 only with `"use_hybrid": false` | Week 3–4 |
+| `/api/v1/ask` | POST | RAG question answering with sources (Redis-cached) | **Week 5** |
+| `/api/v1/stream` | POST | Streaming RAG answer (`data: {...}` lines) | **Week 5** |
+| `/api/v1/ask-agentic` | POST | Agentic RAG with guardrails, document grading, and query rewriting | **Week 7** |
+| `/api/v1/feedback` | POST | Submit a score/comment for a response's Langfuse `trace_id` | **Week 7** |
+
+Example:
+```bash
+curl -X POST http://localhost:8000/api/v1/ask \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are transformers in machine learning?", "top_k": 3, "use_hybrid": true}'
+```
+
+Paper data is loaded by the Airflow ingestion DAG, not through the API. Unpause and trigger `arxiv_paper_ingestion` in the Airflow UI to populate PostgreSQL and OpenSearch.
 
 **API Documentation:** Visit http://localhost:8000/docs for interactive API explorer
 
@@ -509,10 +550,12 @@ make stop          # Stop services
 #### **Direct Commands** (Alternative)
 ```bash
 # If you prefer using commands directly
-docker compose up --build -d    # Start services
-docker compose ps               # Check status
-docker compose logs            # View logs
-uv run pytest                 # Run tests
+docker compose up --build -d      # Start services
+docker compose up --build -d api  # Rebuild the API after changing src/ (code is copied into the image)
+docker compose ps                 # Check status
+docker compose logs               # View logs
+uv run pytest                     # Run tests
+uv run pytest tests/unit          # Unit tests only (no running services needed)
 ```
 
 ### **🎓 Target Audience**
@@ -528,8 +571,11 @@ uv run pytest                 # Run tests
 
 **Common Issues:**
 - **Services not starting?** Wait 2-3 minutes, check `docker compose logs`
-- **Port conflicts?** Stop other services using ports 8000, 8080, 5432, 9200
+- **Port conflicts?** Stop other services using ports 8000, 8080, 5432, 9200, 6379, 3001, 11434
 - **Memory issues?** Increase Docker Desktop memory allocation
+- **Ollama "model not found"?** Pull the model: `docker exec rag-ollama ollama pull llama3.2:1b` (check with `docker exec rag-ollama ollama list`)
+- **Search returns no results?** The index is empty until the Airflow DAG has run, and search errors are logged rather than returned, so check `docker compose logs api`
+- **Code changes not showing up?** Rebuild the API: `docker compose up --build -d api`
 
 **Get Help:**
 - Check the comprehensive Week 1 notebook troubleshooting section
