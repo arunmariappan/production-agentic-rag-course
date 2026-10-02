@@ -173,6 +173,7 @@ class Settings(BaseConfigSettings):
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3.2:1b"
     ollama_timeout: int = 300
+    ollama_think: bool = False  # Thinking models (e.g. qwen3) are very slow with thinking enabled
 
     # Jina AI embeddings configuration
     jina_api_key: str = ""

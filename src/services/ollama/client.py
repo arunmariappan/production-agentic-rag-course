@@ -3,6 +3,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
+from langchain_ollama import ChatOllama
 from src.config import Settings
 from src.exceptions import OllamaConnectionError, OllamaException, OllamaTimeoutError
 from src.schemas.ollama import RAGResponse
@@ -18,8 +19,29 @@ class OllamaClient:
         """Initialize Ollama client with settings."""
         self.base_url = settings.ollama_host
         self.timeout = httpx.Timeout(float(settings.ollama_timeout))
+        self.timeout_seconds = float(settings.ollama_timeout)
+        self.think = settings.ollama_think
         self.prompt_builder = RAGPromptBuilder()
         self.response_parser = ResponseParser()
+
+    def get_langchain_model(self, model: str, temperature: float = 0.0) -> ChatOllama:
+        """
+        Get a LangChain chat model for this Ollama host (used by the agentic RAG nodes).
+
+        Args:
+            model: Model name to use
+            temperature: Sampling temperature
+
+        Returns:
+            ChatOllama instance supporting ainvoke() and with_structured_output()
+        """
+        return ChatOllama(
+            base_url=self.base_url,
+            model=model,
+            temperature=temperature,
+            reasoning=self.think,
+            client_kwargs={"timeout": self.timeout_seconds},
+        )
 
     async def health_check(self) -> Dict[str, Any]:
         """
@@ -97,7 +119,7 @@ class OllamaClient:
         """
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                data = {"model": model, "prompt": prompt, "stream": stream, **kwargs}
+                data = {"model": model, "prompt": prompt, "stream": stream, "think": self.think, **kwargs}
 
                 logger.info(f"Sending request to Ollama: model={model}, stream={stream}, extra_params={kwargs}")
                 response = await client.post(f"{self.base_url}/api/generate", json=data)
@@ -164,7 +186,7 @@ class OllamaClient:
         """
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                data = {"model": model, "prompt": prompt, "stream": True, **kwargs}
+                data = {"model": model, "prompt": prompt, "stream": True, "think": self.think, **kwargs}
 
                 logger.info(f"Starting streaming generation: model={model}")
 

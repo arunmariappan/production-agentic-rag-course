@@ -208,7 +208,8 @@ class AgenticRAGService:
             """Execute the workflow with or without tracing context."""
             if trace is not None:
                 with trace as trace_obj:
-                    trace_obj.update(
+                    trace_obj.update(input={"query": query}, metadata=metadata)
+                    trace_obj.update_trace(
                         input={"query": query},
                         metadata=metadata,
                         user_id=user_id,
@@ -325,6 +326,7 @@ class AgenticRAGService:
                 "rewritten_query": result.get("rewritten_query"),
                 "execution_time": execution_time,
                 "guardrail_score": result.get("guardrail_result").score if result.get("guardrail_result") else None,
+                "trace_id": trace.trace_id if trace else None,
             }
 
         except Exception as e:

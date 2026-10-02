@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
+from src.config import get_settings
 
 
 class AskRequest(BaseModel):
@@ -9,7 +10,10 @@ class AskRequest(BaseModel):
     query: str = Field(..., description="User's question", min_length=1, max_length=1000)
     top_k: int = Field(3, description="Number of top chunks to retrieve", ge=1, le=10)
     use_hybrid: bool = Field(True, description="Use hybrid search (BM25 + vector)")
-    model: str = Field("llama3.2:1b", description="Ollama model to use for generation")
+    model: str = Field(
+        default_factory=lambda: get_settings().ollama_model,
+        description="Ollama model to use for generation (defaults to OLLAMA_MODEL)",
+    )
     categories: Optional[List[str]] = Field(None, description="Filter by arXiv categories")
 
     class Config:

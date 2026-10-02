@@ -176,7 +176,7 @@ class LangfuseTracer:
             return False
 
         try:
-            self.client.score(
+            self.client.create_score(
                 trace_id=trace_id,
                 name=name,
                 value=score,
@@ -187,6 +187,72 @@ class LangfuseTracer:
         except Exception as e:
             logger.error(f"Error submitting feedback: {e}")
             return False
+
+    @contextmanager
+    def trace_rag_request(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Context manager for the top-level span of a RAG request (used by RAGTracer).
+
+        Yields:
+            The root LangfuseSpan, or None when Langfuse is disabled
+        """
+        if not self.client:
+            yield None
+            return
+
+        with self.client.start_as_current_span(name="rag_request", input={"query": query}, metadata=metadata) as span:
+            span.update_trace(user_id=user_id, session_id=session_id, input={"query": query}, metadata=metadata)
+            yield span
+
+    def create_span(
+        self,
+        trace,
+        name: str,
+        input_data: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Start a child span under the given trace/span.
+
+        Args:
+            trace: Parent span (e.g. from trace_rag_request() or start_as_current_span())
+            name: Name for the span
+            input_data: Input to this operation
+            metadata: Additional metadata
+
+        Returns:
+            The child span (end it with end_span() or update_span()), or None if tracing is disabled
+        """
+        if not self.client or trace is None:
+            return None
+
+        try:
+            return trace.start_span(name=name, input=input_data, metadata=metadata)
+        except Exception as e:
+            logger.error(f"Error creating span '{name}': {e}")
+            return None
+
+    def end_span(
+        self,
+        span,
+        output: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Record output on a span from create_span() and end it.
+
+        Args:
+            span: Span object from create_span()
+            output: Operation output
+            metadata: Additional metadata to attach
+        """
+        self.update_span(span, output=output, metadata=metadata)
 
     def flush(self):
         """Flush any pending traces."""

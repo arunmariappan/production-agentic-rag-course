@@ -4,12 +4,13 @@ from typing import Iterator
 
 import gradio as gr
 import httpx
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 API_BASE_URL = "http://localhost:8000/api/v1"
-DEFAULT_MODEL = "llama3.2:1b"
+DEFAULT_MODEL = get_settings().ollama_model  # OLLAMA_MODEL from .env
 AVAILABLE_CATEGORIES = ["cs.AI", "cs.LG"]
 
 
@@ -151,7 +152,7 @@ def create_gradio_interface():
                     )
 
                     model_choice = gr.Dropdown(
-                        choices=["llama3.2:1b", "llama3.2:3b", "llama3.1:8b", "qwen2.5:7b"],
+                        choices=list(dict.fromkeys([DEFAULT_MODEL, "llama3.2:1b", "llama3.2:3b", "llama3.1:8b", "qwen2.5:7b"])),
                         value=DEFAULT_MODEL,
                         label="LLM Model",
                         info="Larger models may give better answers but are slower",
